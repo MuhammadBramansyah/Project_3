@@ -106,7 +106,7 @@ def insert_fact_province_daily(data):
     column_result = ['id','province_id','case_id','date','total']
 
     data = data[column]
-    
+    data = data.melt(id_vars=["tanggal", "kode_prov"], var_name="status", value_name="total").sort_values(["tanggal", "kode_prov", "status"])
     
 
 
