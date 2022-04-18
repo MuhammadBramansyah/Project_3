@@ -10,7 +10,7 @@ class PostgreSQL:
         self.password = cfg['password']
         self.database = cfg['database']
     
-    def connect(self):
+    def connect(self,conn_type = 'engine'):
        if conn_type == 'engine':
            engine = create_engine('postgresql://{}:{}@{}:{}/{}'.format(self.username, self.password, self.host, self.port, self.database))
            conn_engine = engine.connect()
