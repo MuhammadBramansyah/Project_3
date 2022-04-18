@@ -1,14 +1,20 @@
+import encodings
+from itertools import groupby
 from msilib import schema
+from operator import index
 from re import S
+#from matplotlib.pyplot import axes
 import pandas as pd
 import numpy as np
 
 import os
 import json
-from psycopg2 import cursor
+#from psycopg2 import cursor
+#from pyparsing import col
 
 from requests import patch
-from Project_3.sql.query import create_table_dim
+from sqlalchemy import column, false
+from sql.query import create_table_dim
 
 from script.mysql import MYSQL
 from script.postgresql import PostgreSQL
@@ -45,7 +51,7 @@ def insert_raw_data():
 ## create star schema 
 def create_star_schema(schema):
     postgre_auth = PostgreSQL(credentials['postgresql_warehouse'])
-    conn, cursor = postgre_auth.connnect(conn_type = 'cursor')
+    conn, cursor = postgre_auth.connect(conn_type = 'cursor')
 
     query_dim = create_table_dim(schema = schema)
     cursor.execute(query_dim)
@@ -55,7 +61,7 @@ def create_star_schema(schema):
     cursor.execute(query_fact)
     conn.commit()
 
-    cursor.colse()
+    cursor.close()
     conn.close()    
 
 ## insert data dim province
@@ -81,7 +87,7 @@ def insert_data_dim_district(data):
     return data
 
 ## insert data dim_case 
-def insert_dim_case(data,df_tr):
+def insert_dim_case(data):
     column = ["suspect_diisolasi", "suspect_discarded", "closecontact_dikarantina", "closecontact_discarded", "probable_diisolasi", "probable_discarded", "confirmation_sembuh", "confirmation_meninggal", "suspect_meninggal", "closecontact_meninggal", "probable_meninggal"]
     column_result = ['id','status_name','status_detail','status']
 
@@ -98,19 +104,151 @@ def insert_dim_case(data,df_tr):
     df_tr[['status_name', 'status_detail']] = df_tr['status'].str.split('_', n=1,expand=True)
     df_tr = df_tr[column_result]
     
-    return data,df_tr
-
+    return df_tr
+    
 ## insert_fact_province_daily
-def insert_fact_province_daily(data):
+def insert_fact_province_daily(data,dim_case):
     column = ["tanggal", "kode_prov", "suspect_diisolasi", "suspect_discarded", "closecontact_dikarantina", "closecontact_discarded", "probable_diisolasi", "probable_discarded", "confirmation_sembuh", "confirmation_meninggal", "suspect_meninggal", "closecontact_meninggal", "probable_meninggal"]
-    column_result = ['id','province_id','case_id','date','total']
+    column_result = ['date','province_id','status','total']
 
     data = data[column]
     data = data.melt(id_vars=["tanggal", "kode_prov"], var_name="status", value_name="total").sort_values(["tanggal", "kode_prov", "status"])
+    data  = data.groupby(by = ['tanggal','kode_prov','status']).sum()
+    data = data.reset_index()
+
+    data.columns = column_result
+    data['id'] = np.arange(1, data.shape[0]+1)
+
+    dim_case = dim_case.rename({'id':'case_id'},axis = 1)
+    data = pd.merge(data,dim_case, how = 'inner', on = 'status')
+
+    data = data[['id','province_id','case_id','date','total']]
+
+    return data 
+
+## insert fact province month
+def insert_fact_province_month(data,dim_case):
     
+    column = ["tanggal", "kode_prov", "suspect_diisolasi", "suspect_discarded", "closecontact_dikarantina", "closecontact_discarded", "probable_diisolasi", "probable_discarded", "confirmation_sembuh", "confirmation_meninggal", "suspect_meninggal", "closecontact_meninggal", "probable_meninggal"]
+    column_result = ['month', 'province_id', 'status', 'total']
+    
+    data = data[column]
+    data['tanggal'] = data['tanggal'].apply(lambda x :x[:7])
+    data = data.melt(id_vars = ['tanggal', 'kode_prov'], var_name = 'status', value_name = 'total').sort_values(['tanggal', 'kode_prov', 'status'])
+    data = data.groupby(by =['tanggal','kode_prov', 'status']).sum()
+    data = data.reset_index()
 
+    data.columns = column_result
+    data['id'] = np.arange(1,data.shape[0]+1)
 
+    dim_case = dim_case.rename({'id':'case_id'},axis = 1)
+    data = pd.merge(data,dim_case, how = 'inner', on ='status')
+
+    data = data[['id','province_id','case_id','month', 'total']]
+
+    return data
+
+## insert data fact province year
+def insert_data_fact_province_year(data,dim_case):
+    column = ["tanggal", "kode_prov", "suspect_diisolasi", "suspect_discarded", "closecontact_dikarantina", "closecontact_discarded", "probable_diisolasi", "probable_discarded", "confirmation_sembuh", "confirmation_meninggal", "suspect_meninggal", "closecontact_meninggal", "probable_meninggal"]
+    column_results = ['year', 'province_id', 'status', 'total']
+
+    data = data[column]
+    data['tanggal'] = data['tanggal'].apply(lambda x:x[:4])
+    data = data.melt(id_vars = ['tanggal', 'kode_prov'], var_name = 'status', value_name = 'total').sort_values(['tanggal', 'kode_prov','status'])
+    data = data.groupby(by = ['tanggal', 'kode_prov', 'status']).sum()
+    data = data.reset_index()
+
+    data.columns = column_results
+    data['id'] = np.arange(1,data.shape[0]+1)
+
+    dim_case = dim_case.rename({'id':'case_id'},axis = 1)
+    data = pd.merge(data,dim_case, how = 'inner', on = 'status')
+
+    data = data[['id','province_id', 'case_id', 'year', 'total']]
+
+    return data 
+
+## insert data District 
+## insert data district monthly
+def insert_data_district_month(data,dim_case):
+    column = ["tanggal", "kode_kab", "suspect_diisolasi", "suspect_discarded", "closecontact_dikarantina", "closecontact_discarded", "probable_diisolasi", "probable_discarded", "confirmation_sembuh", "confirmation_meninggal", "suspect_meninggal", "closecontact_meninggal", "probable_meninggal"]
+    column_results = ['month', 'district_id', 'status', 'total']
+
+    data = data[column]
+    data['tanggal'] = data['tanggal'].apply(lambda x :x[:7])
+    data = data.melt(id_vars = ['tanggal', 'kode_kab'], var_name = 'status', value_name = 'total').sort_values(['tanggal','kode_kab','status'])
+    data = data.groupby(by = ['tanggal', 'kode_kab', 'status']).sum()
+    data = data.reset_index()
+
+    data.columns = column_results
+    data['id'] = np.arange(1,data.shape[0]+1)
+
+    dim_case = dim_case.rename({'id':'case_id'},axis = 1)
+    data = pd.merge(data,dim_case, how = 'inner', on = 'status')
+
+    data = data[['id', 'district_id', 'case_id', 'month', 'total']]
+    
+    return data 
+
+## insert data district year
+def insert_data_district_year(data,dim_case):
+    column = ["tanggal", "kode_kab", "suspect_diisolasi", "suspect_discarded", "closecontact_dikarantina", "closecontact_discarded", "probable_diisolasi", "probable_discarded", "confirmation_sembuh", "confirmation_meninggal", "suspect_meninggal", "closecontact_meninggal", "probable_meninggal"]
+    column_results = ['year', 'district_id', 'status', 'total']
+
+    data = data[column]
+    data['tanggal'] = data['tanggal'].apply(lambda x:x[:4])
+    data = data.melt(id_vars = ['tanggal', 'kode_kab'], var_name = 'status', value_name = 'total').sort_values(['tanggal','kode_kab','status'])
+    data = data.groupby(by = ['tanggal', 'kode_kab', 'status']).sum()
+    data = data.reset_index()
+
+    data.columns = column_results
+    data['id'] = np.arange(1,data.shape[0] + 1)
+
+    dim_case = dim_case.rename({'id':'case_id'},axis = 1)
+    data = pd.merge(data,dim_case, how = 'inner', on = 'status')
+
+    data = data[['id','district_id', 'case_id','year', 'total']]
+
+    return data
+
+## insert data to data warehouse (postgresql)
+def insert_data_raw_to_datawarehouse(schema):
+    mysql_auth = MYSQL(credentials['mysql_lake'])
+    engine, engine_conn = mysql_auth.connect()
+    data = pd.read_sql(sql = 'bramansyah_raw_covid', con = engine)
+    engine.dispose()
+
+    column = ["tanggal", "kode_prov", "nama_prov", "kode_kab", "nama_kab", "suspect_diisolasi", "suspect_discarded", "closecontact_dikarantina", "closecontact_discarded", "probable_diisolasi", "probable_discarded", "confirmation_sembuh", "confirmation_meninggal", "suspect_meninggal", "closecontact_meninggal", "probable_meninggal"]
+    data = data[column]
+
+    dim_province = insert_data_dim_province(data)
+    dim_district = insert_data_dim_district(data)
+    dim_case = insert_dim_case(data)
+
+    fact_province_daily = insert_fact_province_daily(data,dim_case)
+    fact_province_monthly = insert_fact_province_month(data,dim_case)
+    fact_province_year = insert_data_fact_province_year(data,dim_case)
+    fact_district_monthly = insert_data_district_month(data,dim_case)
+    fact_district_yearly = insert_data_district_year(data,dim_case)
+
+    postgre_auth = PostgreSQL(credentials['postgresql_warehouse'])
+    engine, engine_conn = postgre_auth.connect(conn_type = 'engine')
+
+    dim_province.to_sql('dim_province', schema=schema, con = engine, index = False, if_exists='replace')
+    dim_district.to_sql('dim_district', schema=schema, con = engine, index = False,if_exists='replace')
+    dim_case.to_sql('dim_case', schema=schema, con = engine, index = False, if_exists= 'replace')
+
+    fact_province_daily.to_sql('fact_province_daily', schema = schema, con = engine, index = False, if_exists='replace')
+    fact_province_monthly.to_sql('fact_province_monthly', schema = schema, con = engine, index=False,if_exists='replace' )
+    fact_province_year.to_sql('fact_province_yearly', schema=schema, con = engine, index=False, if_exists='replace')
+    fact_district_monthly.to_sql('fact_district_monthly',schema=schema, con = engine, index = False, if_exists='replace')
+    fact_district_yearly.to_sql('fact_district_yearly', schema=schema, con = engine, index=False,if_exists='replace')
+
+    engine.dispose()
 
 if __name__ == '__main__':
     insert_raw_data()
+    create_star_schema(schema='bramansyah')
+    insert_data_raw_to_datawarehouse(schema='bramansyah')
     

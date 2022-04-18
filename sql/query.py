@@ -53,7 +53,7 @@ def create_table_fact(schema):
             total bigint
         );
 
-        CREATE TABLE INF NOT EXISTS {schema}.fact_district_yearly(
+        CREATE TABLE IF NOT EXISTS {schema}.fact_district_yearly(
             id SERIAL,
             district_id text,
             case_id int,
