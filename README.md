@@ -3,7 +3,7 @@ This is my simple project about ETL batch processing using python
 
 # Technology
 
-## Database
+## Data Lake
 1. Postgresql
 
 ## Transformation Data
